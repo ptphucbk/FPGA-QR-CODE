@@ -1,0 +1,709 @@
+LIBRARY IEEE;
+USE IEEE.std_logic_1164.ALL;
+USE STD.TEXTIO.ALL;
+USE IEEE.std_logic_unsigned.all;
+use ieee.std_logic_arith.all;
+
+PACKAGE poly IS
+	
+	TYPE log IS ARRAY (0 TO 255) OF INTEGER;
+	TYPE poly IS ARRAY (0 TO 13) OF INTEGER;
+	TYPE error_correction IS ARRAY (0 TO 207) OF std_logic;	
+	TYPE coef_length IS ARRAY (0 TO 25) OF INTEGER;	
+	TYPE divide_length IS ARRAY (0 TO 13) OF INTEGER;	
+	TYPE qr IS ARRAY (0 TO 440) OF std_logic;	
+	--type duong_array is array (0 to 5) of std_logic_vector ( 7 downto 0);	
+	
+	type duong_array is array (0 to 15) of std_logic_vector ( 7 downto 0);
+	type num_array is array(0 to 5) of std_logic_vector ( 0 to 9);
+	
+END poly;
+
+LIBRARY IEEE;
+USE IEEE.std_logic_1164.ALL;
+USE STD.TEXTIO.ALL;
+USE WORK.poly.ALL;
+USE IEEE.std_logic_unsigned.all;
+use ieee.std_logic_arith.all;
+ 
+ENTITY UART IS
+PORT
+(
+	CLOCK_50: IN STD_LOGIC; --pin A18 tan so 80MHz nen chinh lai RX TX dem den 8333
+	KEY: IN STD_LOGIC;--set pin SW0 xac dinh gui
+	KEYRESET: IN STD_LOGIC;--pin SW1 xac dinh reset
+	UART_TXD:OUT STD_LOGIC;--Pin send cua UART
+	UART_RXD:IN STD_LOGIC; --Pin receive cua UART
+	UART_RXDBT: IN STD_LOGIC;--Pin receive cua Bluetooth D29-JP8 3
+	LEDW: INOUT STD_LOGIC;--C30-JP8 2
+	LED: INOUT STD_LOGIC-- C29-JP8 1
+);
+END ENTITY UART;
+
+
+ARCHITECTURE MAIN OF UART IS
+			
+	SIGNAL TX_DATA: STD_LOGIC_VECTOR(7  downto 0);
+	SIGNAL TX_START: STD_LOGIC:='0';
+	SIGNAL TX_BUSY: STD_LOGIC;
+	SIGNAL RX_DATA: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL RX_BUSY: STD_LOGIC;
+	SIGNAL RX_DATABT: STD_LOGIC_VECTOR(7 DOWNTO 0);
+	SIGNAL RX_BUSYBT: STD_LOGIC;
+	SIGNAL TEST: STD_LOGIC:='0';
+	signal enable: std_logic:= '0';
+	signal enablecompare: std_logic:= '0';
+	signal sotu: integer range 0 to 15 :=0;
+	signal sotuBT: integer range 0 to 15 :=0;
+	signal showresult: std_logic:= '0';
+	signal compared: std_logic:= '0';
+	shared variable TRANS: STD_LOGIC:= '1';
+	shared variable ten : duong_array := ("00000000","00000000","00000000","00000000","00000000",
+	"00000000","00000000","00000000","00000000","00000000","00000000","00000000","00000000",
+	"00000000","00000000","00000000");
+	shared variable tenBT : duong_array := ("00000000","00000000","00000000","00000000","00000000",
+	"00000000","00000000","00000000","00000000","00000000","00000000","00000000","00000000",
+	"00000000","00000000","00000000");
+	shared variable tencompare : duong_array := ("00000000","00000000","00000000","00000000","00000000",
+	"00000000","00000000","00000000","00000000","00000000","00000000","00000000","00000000",
+	"00000000","00000000","00000000");
+	--shared variable ten2: duong_array;
+	shared variable MAHOA: STD_LOGIC:='0';
+	shared variable indexcompare: integer range 0 to 16 :=0;
+	shared variable LEDTRUE: STD_LOGIC:='0';
+	shared variable LEDFALSE: STD_LOGIC:='0';
+	
+	CONSTANT gen_poly : poly := (0,74,152,176,100,86,100,106,104,130,218,206,140,78);
+	
+	CONSTANT g0log : log := (
+		16#ff#,16#00#,16#01#,16#19#,16#02#,16#32#,16#1a#,16#c6#,16#03#,16#df#,16#33#,16#ee#,16#1b#,16#68#,16#c7#,16#4b#,
+		16#04#,16#64#,16#e0#,16#0e#,16#34#,16#8d#,16#ef#,16#81#,16#1c#,16#c1#,16#69#,16#f8#,16#c8#,16#08#,16#4c#,16#71#,
+		16#05#,16#8a#,16#65#,16#2f#,16#e1#,16#24#,16#0f#,16#21#,16#35#,16#93#,16#8e#,16#da#,16#f0#,16#12#,16#82#,16#45#,
+		16#1d#,16#b5#,16#c2#,16#7d#,16#6a#,16#27#,16#f9#,16#b9#,16#c9#,16#9a#,16#09#,16#78#,16#4d#,16#e4#,16#72#,16#a6#,
+		16#06#,16#bf#,16#8b#,16#62#,16#66#,16#dd#,16#30#,16#fd#,16#e2#,16#98#,16#25#,16#b3#,16#10#,16#91#,16#22#,16#88#,
+		16#36#,16#d0#,16#94#,16#ce#,16#8f#,16#96#,16#db#,16#bd#,16#f1#,16#d2#,16#13#,16#5c#,16#83#,16#38#,16#46#,16#40#,
+		16#1e#,16#42#,16#b6#,16#a3#,16#c3#,16#48#,16#7e#,16#6e#,16#6b#,16#3a#,16#28#,16#54#,16#fa#,16#85#,16#ba#,16#3d#,
+		16#ca#,16#5e#,16#9b#,16#9f#,16#0a#,16#15#,16#79#,16#2b#,16#4e#,16#d4#,16#e5#,16#ac#,16#73#,16#f3#,16#a7#,16#57#,
+		16#07#,16#70#,16#c0#,16#f7#,16#8c#,16#80#,16#63#,16#0d#,16#67#,16#4a#,16#de#,16#ed#,16#31#,16#c5#,16#fe#,16#18#,
+		16#e3#,16#a5#,16#99#,16#77#,16#26#,16#b8#,16#b4#,16#7c#,16#11#,16#44#,16#92#,16#d9#,16#23#,16#20#,16#89#,16#2e#,
+		16#37#,16#3f#,16#d1#,16#5b#,16#95#,16#bc#,16#cf#,16#cd#,16#90#,16#87#,16#97#,16#b2#,16#dc#,16#fc#,16#be#,16#61#,
+		16#f2#,16#56#,16#d3#,16#ab#,16#14#,16#2a#,16#5d#,16#9e#,16#84#,16#3c#,16#39#,16#53#,16#47#,16#6d#,16#41#,16#a2#,
+		16#1f#,16#2d#,16#43#,16#d8#,16#b7#,16#7b#,16#a4#,16#76#,16#c4#,16#17#,16#49#,16#ec#,16#7f#,16#0c#,16#6f#,16#f6#,
+		16#6c#,16#a1#,16#3b#,16#52#,16#29#,16#9d#,16#55#,16#aa#,16#fb#,16#60#,16#86#,16#b1#,16#bb#,16#cc#,16#3e#,16#5a#,
+		16#cb#,16#59#,16#5f#,16#b0#,16#9c#,16#a9#,16#a0#,16#51#,16#0b#,16#f5#,16#16#,16#eb#,16#7a#,16#75#,16#2c#,16#d7#,
+		16#4f#,16#ae#,16#d5#,16#e9#,16#e6#,16#e7#,16#ad#,16#e8#,16#74#,16#d6#,16#f4#,16#ea#,16#a8#,16#50#,16#58#,16#af#
+	);
+
+	CONSTANT g0exp : log := (
+		16#01#,16#02#,16#04#,16#08#,16#10#,16#20#,16#40#,16#80#,16#1d#,16#3a#,16#74#,16#e8#,16#cd#,16#87#,16#13#,16#26#,
+		16#4c#,16#98#,16#2d#,16#5a#,16#b4#,16#75#,16#ea#,16#c9#,16#8f#,16#03#,16#06#,16#0c#,16#18#,16#30#,16#60#,16#c0#,
+		16#9d#,16#27#,16#4e#,16#9c#,16#25#,16#4a#,16#94#,16#35#,16#6a#,16#d4#,16#b5#,16#77#,16#ee#,16#c1#,16#9f#,16#23#,
+		16#46#,16#8c#,16#05#,16#0a#,16#14#,16#28#,16#50#,16#a0#,16#5d#,16#ba#,16#69#,16#d2#,16#b9#,16#6f#,16#de#,16#a1#,
+		16#5f#,16#be#,16#61#,16#c2#,16#99#,16#2f#,16#5e#,16#bc#,16#65#,16#ca#,16#89#,16#0f#,16#1e#,16#3c#,16#78#,16#f0#,
+		16#fd#,16#e7#,16#d3#,16#bb#,16#6b#,16#d6#,16#b1#,16#7f#,16#fe#,16#e1#,16#df#,16#a3#,16#5b#,16#b6#,16#71#,16#e2#,
+		16#d9#,16#af#,16#43#,16#86#,16#11#,16#22#,16#44#,16#88#,16#0d#,16#1a#,16#34#,16#68#,16#d0#,16#bd#,16#67#,16#ce#,
+		16#81#,16#1f#,16#3e#,16#7c#,16#f8#,16#ed#,16#c7#,16#93#,16#3b#,16#76#,16#ec#,16#c5#,16#97#,16#33#,16#66#,16#cc#,
+		16#85#,16#17#,16#2e#,16#5c#,16#b8#,16#6d#,16#da#,16#a9#,16#4f#,16#9e#,16#21#,16#42#,16#84#,16#15#,16#2a#,16#54#,
+		16#a8#,16#4d#,16#9a#,16#29#,16#52#,16#a4#,16#55#,16#aa#,16#49#,16#92#,16#39#,16#72#,16#e4#,16#d5#,16#b7#,16#73#,
+		16#e6#,16#d1#,16#bf#,16#63#,16#c6#,16#91#,16#3f#,16#7e#,16#fc#,16#e5#,16#d7#,16#b3#,16#7b#,16#f6#,16#f1#,16#ff#,
+		16#e3#,16#db#,16#ab#,16#4b#,16#96#,16#31#,16#62#,16#c4#,16#95#,16#37#,16#6e#,16#dc#,16#a5#,16#57#,16#ae#,16#41#,
+		16#82#,16#19#,16#32#,16#64#,16#c8#,16#8d#,16#07#,16#0e#,16#1c#,16#38#,16#70#,16#e0#,16#dd#,16#a7#,16#53#,16#a6#,
+		16#51#,16#a2#,16#59#,16#b2#,16#79#,16#f2#,16#f9#,16#ef#,16#c3#,16#9b#,16#2b#,16#56#,16#ac#,16#45#,16#8a#,16#09#,
+		16#12#,16#24#,16#48#,16#90#,16#3d#,16#7a#,16#f4#,16#f5#,16#f7#,16#f3#,16#fb#,16#eb#,16#cb#,16#8b#,16#0b#,16#16#,
+		16#2c#,16#58#,16#b0#,16#7d#,16#fa#,16#e9#,16#cf#,16#83#,16#1b#,16#36#,16#6c#,16#d8#,16#ad#,16#47#,16#8e#,16#00#
+	);
+
+	signal qrCodeFinal : qr := (
+			'1', '1', '1', '1', '1', '1', '1', '0', '1', '0', '0', '0', '0', '0', '1', '1', '1', '1', '1', '1', '1',
+			'1', '0', '0', '0', '0', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '1',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '0', '1',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '0', '1',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '0', '1',
+			'1', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '1',
+			'1', '1', '1', '1', '1', '1', '1', '0', '1', '0', '1', '0', '1', '0', '1', '1', '1', '1', '1', '1', '1',
+			'0', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '1', '1', '0', '1', '0', '1', '1', '0', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '1', '1',
+			'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '1', '1', '1', '1', '1', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '1', '1', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '0', '0', '0', '0', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '1', '1', '1', '1', '1', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'
+	);	
+	
+	SHARED VARIABLE qrCode : qr := (
+			'1', '1', '1', '1', '1', '1', '1', '0', '1', '0', '0', '0', '0', '0', '1', '1', '1', '1', '1', '1', '1',
+			'1', '0', '0', '0', '0', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '1',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '0', '1',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '0', '1',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '0', '1',
+			'1', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '1',
+			'1', '1', '1', '1', '1', '1', '1', '0', '1', '0', '1', '0', '1', '0', '1', '1', '1', '1', '1', '1', '1',
+			'0', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '1', '1', '0', '1', '0', '1', '1', '0', '0', '0', '0', '0', '0', '1', '0', '1', '1', '1', '1', '1',
+			'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'0', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '1', '1', '1', '1', '1', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '0', '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '1', '1', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '1', '1', '1', '0', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '0', '0', '0', '0', '0', '1', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+			'1', '1', '1', '1', '1', '1', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'
+		);				
+	
+	SHARED VARIABLE add_error : error_correction := (
+			'0','0','0','1','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0',
+			'0','0','0','0','0','0','0','0','0','0'
+	);
+			
+	function mul_10bit(n:integer; num: std_logic_vector( 7 downto 0)) return std_logic_vector is
+		variable temp: std_logic_vector ( 9 downto 0);
+	begin
+		temp:=(others=>'0');
+		for i in 3 downto 0 loop
+			temp(i+n):= num(i);
+		end loop;
+		return temp;
+	end mul_10bit;
+
+	function mul_7bit(n:integer; num: std_logic_vector( 7 downto 0)) return std_logic_vector is
+		variable temp: std_logic_vector ( 6 downto 0);
+	begin
+		temp:=(others=>'0');
+		for i in 3 downto 0 loop
+			temp(i+n):= num(i);
+		end loop;
+		return temp;
+	end mul_7bit;
+
+	function mul_4bit(n:integer; num: std_logic_vector( 7 downto 0)) return std_logic_vector is
+		variable temp: std_logic_vector ( 3 downto 0);
+	begin
+		temp:=(others=>'0');
+		for i in 3 downto 0 loop
+			temp(i+n):= num(i);
+		end loop;
+		return temp;
+	end mul_4bit;
+
+	---------------------------------------------------------------------------------------------
+
+	procedure encode(st: in integer) is
+		
+		variable so3cs , socl: integer;
+		variable num: num_array;
+		variable last2: std_logic_vector (0 to 6);
+		variable last1: std_logic_vector (0 to 3);
+		variable count: std_logic_vector (0 to 9);
+		variable addbyte1,addbyte0: std_logic_vector( 0 to 7);
+		variable n,m,k :integer;
+			
+	begin
+		add_error := (3 => '1', others => '0');
+		addbyte1:="11101100";
+		addbyte0:="00010001";
+		n:=0;
+		m:=0;
+		k:=0;
+	--------------------------------- add count character --------------------------------------	
+		count := conv_std_logic_vector(st,10);
+		for i in 0 to 9 loop
+			add_error(i+4) := count(i);
+		end loop;
+	------------------------------ chuyen so 3 chu so thanh 10 bit------------------------------	
+		so3cs := st/3;            ------- so cac so co 3 digit
+		socl := st rem 3;
+		
+		while (n < so3cs) loop
+			num(n) := mul_10bit(6,ten(3*n+0))+mul_10bit(5,ten(3*n+0)) + mul_10bit(2,ten(3*n+0))+mul_10bit(3,ten(3*n+1))+mul_10bit(1,ten(3*n+1))+mul_10bit(0,ten(3*n+2));
+				for j in 0 to 9 loop
+					add_error(14+10*n+j) := num(n)(j);
+				end loop;
+			n := n + 1;
+		end loop;
+		
+		n:= 14+10*so3cs;
+
+	------------------------------------------------------------------------------------------------	
+		if(socl = 1) 
+		then
+			last1 := mul_4bit(0,ten(st-1));
+			for i in 0 to 3 loop
+				add_error(14+10*so3cs+i) := last1(i);
+				--temp(14+10*so3cs+i) := last1(i);
+			end loop;
+			n:=n+4;
+			
+		elsif (socl = 2)
+		then	
+			last2 := mul_7bit(3,ten(st-2)) + mul_7bit(1,ten(st-2)) + mul_7bit(0,ten(st-1));
+			for i in 0 to 6 loop
+				add_error(14 + 10*so3cs + i) := last2(i);
+				--temp(14 + 10*so3cs + i) := last2(i);
+			end loop;
+			n:= n+7;
+		end if;
+	--------------------------------------- add terminal----------------------------------------
+		if (n < 99)
+		then
+			n:=n+4; -- so luong pt trong mang 
+			m:= n rem 8;
+			if(m /= 0) then
+				m:= 8-m;
+			end if;
+			n:= n+m;
+			
+			m:=0;
+			while( (n+8*m) < 104) loop
+				k:= m rem 2;
+				
+				if (k=0) then
+					for	i in 0 to 7 loop
+						add_error(n+8*m+i):=addbyte1(i);			
+					end loop;
+				else
+					for i in 0 to 7 loop
+						add_error(n+8*m+i):=addbyte0(i);					
+					end loop;
+				end if;
+				m:=m+1;
+			end loop;
+		end if;
+	end encode;
+	
+							
+	FUNCTION vector_to_int(S : std_logic_vector (0 TO 7))   
+		RETURN INTEGER is                
+		VARIABLE result : INTEGER := 0;  
+		BEGIN
+		FOR i IN 0 TO 7 LOOP             
+			result := result * 2;        
+			IF S(i) = '1' THEN            
+				result := result + 1;       
+			END IF;
+		END LOOP;
+		RETURN result;                 
+	END vector_to_int;
+		
+	FUNCTION int_to_vector(x : INTEGER)   
+		RETURN std_logic_vector is               
+		VARIABLE result : std_logic_vector (0 TO 7); 
+		VARIABLE so_du : INTEGER; 
+		VARIABLE so_chia : INTEGER := x; 
+		BEGIN
+		FOR i IN 7 DOWNTO 0 LOOP            
+			so_du := so_chia mod 2;  
+			IF (so_du = 0) THEN
+				result(i) := '0'; 
+			ELSE
+				result(i) := '1'; 
+			END IF;
+			so_chia := so_chia / 2;      
+		END LOOP;
+		RETURN result;                  
+	END int_to_vector;
+		
+	FUNCTION xor_integer(x : INTEGER; y : INTEGER)  
+		RETURN INTEGER is               
+		VARIABLE result : INTEGER;  
+		VARIABLE x_logic : std_logic_vector(0 TO 7);  
+		VARIABLE y_logic : std_logic_vector(0 TO 7);  
+		VARIABLE xor_logic : std_logic_vector(0 TO 7); 
+		
+		BEGIN
+		
+		x_logic := int_to_vector(x); 	
+		y_logic := int_to_vector(y); 	
+		
+		FOR i IN 7 DOWNTO 0 LOOP             
+			xor_logic(i) := x_logic(i) xor y_logic(i);
+		END LOOP;
+		result := vector_to_int(xor_logic);
+		RETURN result;                   
+	END xor_integer;
+	
+	FUNCTION check_coordinate(x : INTEGER; y : INTEGER)   --line 4
+		RETURN INTEGER is  
+		VARIABLE result : INTEGER := 0;  
+		BEGIN
+			IF (x >=0 AND x <=8 AND y >=0 AND y <= 8)THEN
+				result := 0;
+				ELSIF (x >=13 AND x <= 20 AND y >=0 AND y <= 8)THEN
+					result := 0;
+				ELSIF (y >=13 AND y <= 20 AND x >=0 AND x <= 8)THEN
+					result := 0;
+				ELSIF (x = 6 AND y >= 9 AND y <= 12)THEN
+					result := 0;
+				ELSIF (x >= 9 AND x <= 12 AND y = 6)THEN
+					result := 0;
+				ELSE result := 1;
+			END IF;
+		RETURN result;                   --line 11
+	END check_coordinate;
+			
+	PROCEDURE fill_matrix (str : error_correction) IS
+		VARIABLE x : INTEGER := 20;
+		VARIABLE yy : INTEGER;
+		VARIABLE y : INTEGER := 20;
+		VARIABLE direction : INTEGER := -1;
+		VARIABLE i : INTEGER := 0;
+		VARIABLE j : INTEGER := 0;
+	BEGIN
+		WHILE(y > 0) LOOP
+			WHILE( x >= 0 AND x < 21)LOOP
+				FOR j IN 0 TO 1 LOOP
+					yy := y - j;
+					IF (check_coordinate(x,yy) = 1)THEN
+						IF (str(i) = '0')THEN
+							qrCode(x*21 + yy) := '0';
+						ELSE
+							qrCode(x*21 + yy) := '1';
+						END IF;
+						i := i + 1;
+					END IF;
+				END LOOP;
+				x := x + direction;
+			END LOOP;
+			direction := -direction;
+			x := x + direction;
+			y := y - 2;
+			if (y=6) then
+				y := 5;
+			end if;
+		END LOOP;
+
+	END fill_matrix;
+			
+	PROCEDURE mask (temp : INTEGER) IS
+	BEGIN
+		  FOR x IN 0 TO 20 LOOP
+			FOR y IN 0 TO 20 LOOP
+			  IF (temp = 0 AND (x+y) MOD 2 = 0 AND check_coordinate(x,y) = 1) THEN
+				IF (qrCode(x*21+y) = '0')THEN
+				  qrCode(x*21+ y) := '1';
+				ELSE
+				  qrCode(x*21 + y) := '0';
+				END IF;
+			  END IF;
+			END LOOP;
+		  END LOOP;
+	END mask;		
+
+	PROCEDURE qrEncoder (temp : INTEGER) IS
+	
+		VARIABLE index : INTEGER := 0;
+		VARIABLE S_shift : std_logic_vector (0 TO 7);
+		VARIABLE coefficients : coef_length := (others => 0);
+		VARIABLE divisor : divide_length := (others => 0);
+		
+	BEGIN
+	
+		-- Chuyển chuỗi dữ liệu mã hóa chuỗi số đầu vào thành các số nguyên
+		
+		FOR control IN 0 TO 12 LOOP
+			FOR i IN 0 TO 7 LOOP
+				S_shift(i) := add_error(i + control*8);
+			END LOOP;
+			coefficients(control) := vector_to_int(S_shift);
+			--WRITE(out_line,coefficients(control));
+			--WRITELINE(OUTFILE,out_line);
+		END LOOP;
+		
+		-- Tính mã sửa sai cho chuỗi dữ liệu trên
+		
+		FOR j IN 0 TO 12 LOOP
+			FOR i IN 0 TO 13 LOOP
+				  divisor(i) := gen_poly(i);
+--						  divisor(i) := (divisor(i) + g0log(coefficients(j))) MOD 255;
+				  divisor(i) := (divisor(i) + g0log(coefficients(j)));
+				  if (divisor(i) > 255) then
+						divisor(i) := divisor(i) -255;
+				  end if;
+				  divisor(i) := g0exp(divisor(i));
+			END LOOP;
+				
+			FOR i IN 0 TO 13 LOOP
+				coefficients(i+j) := xor_integer(coefficients(i+j), divisor(i));
+			END LOOP;
+		END LOOP;
+							
+		--FOR i IN 0 TO 127 LOOP
+			--add_error(i) := input(i);
+		--END LOOP;
+		
+		-- Chuyển chuỗi mã sửa sai từ dạng số nguyên về dạng chuỗi bit 0, 1
+		
+		index := 104;
+		FOR i IN 13 TO 25 LOOP
+			--WRITE(out_line,coefficients(i));
+			--WRITELINE(OUTFILE,out_line);
+			S_shift := int_to_vector(coefficients(i));
+			FOR j IN 0 TO 7 LOOP
+				add_error(index) := S_shift(j);
+				index := index + 1;
+			END LOOP;
+		END LOOP;
+		
+		-- Điền chuỗi bit 0,1 ở trên vào mảng chứa QR code hoàn chỉnh
+		
+		fill_matrix(add_error);
+		
+		-- Tạo mặt nạ cho mã QR 
+		
+		mask(temp);
+
+	END qrEncoder;
+
+	shared variable sotu2: integer range 0 to 625:=0;
+	shared variable tru: std_logic:='0';
+	shared variable truyen: std_logic:= '0';
+----------------------------------------
+	
+	COMPONENT TX IS
+	PORT(
+	CLK:IN STD_LOGIC;
+	START:IN STD_LOGIC;
+	BUSY:OUT STD_LOGIC;
+	DATA: IN STD_LOGIC_VECTOR(7 downto 0);
+	TX_LINE:OUT STD_LOGIC
+	);
+	END COMPONENT TX;
+
+
+	COMPONENT RX IS
+	PORT(
+	CLK:IN STD_LOGIC;
+	RX_LINE:IN STD_LOGIC;
+	DATA:OUT STD_LOGIC_VECTOR(7 downto 0);
+	BUSY:OUT STD_LOGIC
+	);
+	END COMPONENT RX;
+------------------------------------------------------
+	COMPONENT RXBT IS
+	PORT(
+	CLKBT:IN STD_LOGIC;
+	RX_LINEBT:IN STD_LOGIC;
+	DATABT:OUT STD_LOGIC_VECTOR(7 downto 0);
+	BUSYBT:OUT STD_LOGIC
+	);
+	END COMPONENT RXBT;
+------------------------------------------------------
+	BEGIN
+	C1: TX PORT MAP (CLOCK_50,TX_START,TX_BUSY,TX_DATA,UART_TXD);
+	C2: RX PORT MAP (CLOCK_50,UART_RXD,RX_DATA,RX_BUSY);
+	C3: RXBT PORT MAP (CLOCK_50,UART_RXDBT,RX_DATABT,RX_BUSYBT); 
+	 
+ 
+	PROCESS(RX_BUSY) ---process nhan tu may tinh
+	BEGIN
+	IF(RX_BUSY'EVENT AND RX_BUSY='0')THEN					  	
+			if(RX_DATA /= "00100101" and RX_DATA /= "00100011") then
+				ten(sotu) := RX_DATA;
+				tencompare(sotu) := RX_DATA;
+				sotu <= sotu + 1;			
+			end if;
+			if(RX_DATA = "00100101") then
+				enable <= '1';
+			end if;				
+			if(RX_DATA = "00100011") then
+				sotu <= 0;
+				enable <= '0';
+			end if;					
+	END IF;
+	END PROCESS;
+	
+	PROCESS(RX_BUSYBT) ---process nhan tu smartphone
+	BEGIN
+	IF(RX_BUSYBT'EVENT AND RX_BUSYBT='0')THEN							
+			if(RX_DATABT /= "00100101" and RX_DATABT /= "00100011") then
+				tenBT(sotuBT) := RX_DATABT;
+				sotuBT <= sotuBT + 1;			
+				--LED <= '0';							
+			end if;
+			if(RX_DATABT = "00100101") then
+				--Nhan duoc ki tu % thi bat dau so sanh
+				enablecompare <= '1';	
+				--LED <= '1';			
+			end if;	
+			if(RX_DATABT = "00100011") then -- gui ki tu # truoc khi gui ma trong android
+				sotuBT <= 0;
+				enablecompare <= '0';							
+			end if;													
+	END IF;
+	END PROCESS;
+	
+	Process(CLOCK_50) -- bat dau so sanh
+	begin	
+	IF (CLOCK_50'EVENT AND CLOCK_50 = '1') THEN
+		if (enablecompare = '1' and compared = '0') then
+			LEDW <= '0';
+			LED <= '0';
+			if (sotuBT /= sotu) then
+				LEDW <= '1';
+				LED <= '0';
+			else			
+				indexcompare := 0;
+				while (indexcompare < sotu and LEDW = '0') loop
+					if (tenBT(indexcompare) /= tencompare(indexcompare)) then
+						LEDW <= '1';
+						LED <= '0';
+					else
+						LEDW <= '0';
+						LED <= '1';
+					end if;
+					indexcompare := indexcompare + 1;
+				end loop;								
+			end if;
+			compared <= '1';					
+		end if;
+		
+		if (enablecompare = '0') then
+			compared <= '0';		
+		end if;
+		
+		if (enable = '0') then		
+			LEDW <= '0';
+			LED <= '0';
+		end if;	
+	END IF;		
+	end process;
+	
+
+	Process(CLOCK_50) ---process ma hoa	
+
+	Begin
+	IF (CLOCK_50'event and CLOCK_50 = '1') THEN 
+	
+				if (enable = '1' and MAHOA = '0') then
+					
+				if (sotu = 1) then 
+					encode(1);
+				end if;
+				if (sotu = 2) then 
+					encode(2);
+				end if;
+				if (sotu = 3) then 
+					encode(3);
+				end if;
+				if (sotu = 4) then 
+					encode(4);
+				end if;
+				if (sotu = 5) then 
+					encode(5);
+				end if;
+				if (sotu = 6) then 
+					encode(6);
+				end if;
+				if (sotu = 7) then 
+					encode(7);
+				end if;
+				if (sotu = 8) then 
+					encode(8);
+				end if;
+				if (sotu = 9) then 
+					encode(9);
+				end if;
+				if (sotu = 10) then 
+					encode(10);
+				end if;
+				if (sotu = 11) then 
+					encode(11);
+				end if;
+				if (sotu = 12) then 
+					encode(12);
+				end if;
+				if (sotu = 13) then 
+					encode(13);
+				end if;
+				if (sotu = 14) then 
+					encode(14);
+				end if;
+				if (sotu = 15) then 
+					encode(15);
+				end if;
+				if (sotu = 16) then 
+					encode(16);
+				end if;
+				
+				qrEncoder(0);
+				
+				qrCodeFinal <= qrCode;
+				
+				MAHOA := '1';	
+				TRANS := '0';
+				end if;
+
+
+				if (enable = '0') then
+					TRANS := '1';
+					MAHOA := '0';	 
+				end if;
+				
+	END IF;
+	end process;
+
+
+
+	PROCESS(CLOCK_50) ---process truyen len may tinh
+
+	BEGIN
+
+	IF(CLOCK_50'EVENT AND CLOCK_50='1')THEN 
+
+	   IF (TRANS = '1') THEN
+			truyen := '0';
+			TX_START <= '0';
+			tru := '0';		
+	   END IF;
+	   
+	   IF(TRANS = '0' AND truyen = '0') THEN
+			sotu2 := 441;
+			truyen := '1';
+	   END IF;
+	   
+	   IF(TRANS = '0' AND TX_BUSY='0' AND truyen = '1' AND sotu2>0)THEN
+			if (qrCodeFinal(441 - sotu2) = '1')then		
+			TX_DATA <= "00110001";
+			else
+			TX_DATA <= "00110000";
+			end if;			   
+			TX_START<='1';	
+	   END IF;
+			
+		IF (TX_BUSY = '1') THEN
+			tru := '1';
+		END IF;
+		
+		IF (TX_BUSY = '0' AND tru = '1')THEN
+			TX_START <= '0';
+			sotu2 := sotu2 - 1;
+			tru := '0';
+		END IF;
+		
+		IF(sotu2 = 0)THEN
+			TX_START <= '0';		
+		END IF;
+			
+	END IF;
+	END PROCESS;
+		
+			
+END MAIN;
